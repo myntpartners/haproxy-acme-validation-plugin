@@ -2,9 +2,9 @@
 
 # create new cert using letsencrypt for use with haproxy.
 # - aborts if folder /etc/letsencrypt/live/domain.tld/ exists
-# - creates haproxy.pem files in /etc/letsencrypt/live/domain.tld/
-#
-# after creating cert you must add to haproxy.
+# - creates haproxy.pem file in /etc/letsencrypt/live/domain.tld/
+# - softlinks the haproxy.pem file to /etc/letsencrypt/haproxy-certs/domain.tld.pem
+# - soft restart haproxy
 #
 # usage:
 # sudo ./cert-create-haproxy.sh domain.tld domain2.tld ...
@@ -15,11 +15,13 @@
 
 EMAIL="your_le_account@email.com"
 
-LE_CLIENT="/path/to/letsencrypt-auto"
+LE_CLIENT="/usr/local/bin/certbot-auto"
 
 HAPROXY_RELOAD_CMD="service haproxy reload"
 
 WEBROOT="/var/lib/haproxy"
+
+HAP_CERT_ROOT="/etc/letsencrypt/haproxy-certs"
 
 # Enable to redirect output to logfile (for silent cron jobs)
 # LOGFILE="/var/log/certrenewal.log"
@@ -67,6 +69,10 @@ if [ ! -d ${le_cert_root} ]; then
   exit 1
 fi
 
+if [ ! -d ${HAP_CERT_ROOT} ]; then
+  logger_error "${HAP_CERT_ROOT} does not exist!"
+  exit 1
+fi
 
 created_certs=()
 exitcode=0
@@ -99,10 +105,20 @@ done
 # create haproxy.pem file(s)
 for domain in ${created_certs[@]}; do
   cat ${le_cert_root}/${domain}/privkey.pem ${le_cert_root}/${domain}/fullchain.pem | tee ${le_cert_root}/${domain}/haproxy.pem >/dev/null
+  ln -s ${le_cert_root}/${domain}/haproxy.pem ${HAP_CERT_ROOT}/${domain}.pem
   if [ $? -ne 0 ]; then
     logger_error "${domain}: failed to create haproxy.pem file!"
-    exit 1
+    continue
   fi
 done
+
+# soft-restart haproxy
+if [ "${#renewed_certs[@]}" -gt 0 ]; then
+  $HAPROXY_RELOAD_CMD
+  if [ $? -ne 0 ]; then
+    logger_error "failed to reload haproxy!"
+    exit 1
+  fi
+fi
 
 exit ${exitcode}
