@@ -14,7 +14,7 @@
 
 EMAIL="your_le_account@email.com"
 
-LE_CLIENT="/path/to/letsencrypt-auto"
+LE_CLIENT="/usr/local/bin/certbot-auto"
 
 HAPROXY_RELOAD_CMD="service haproxy reload"
 
