@@ -21,24 +21,20 @@ HAPROXY_RELOAD_CMD="service haproxy reload"
 
 WEBROOT="/var/lib/haproxy"
 
+CERTROOT="/etc/letsencrypt/live"
+
 HAP_CERT_ROOT="/etc/letsencrypt/haproxy-certs"
 
 # Enable to redirect output to logfile (for silent cron jobs)
-# LOGFILE="/var/log/certrenewal.log"
+LOGFILE="/var/log/letsencrypt/certcreate.log"
 
 ######################
 ## utility function ##
 ######################
 
 function issueCert {
-  $LE_CLIENT certonly --text --webroot --webroot-path ${WEBROOT} --renew-by-default --agree-tos --email ${EMAIL} $1 &>/dev/null
+  $LE_CLIENT certonly --text --webroot --webroot-path ${WEBROOT} --renew-by-default --agree-tos --email ${EMAIL} $1 &> ${LOGFILE}
   return $?
-}
-
-function createProxyCert {
-cat /etc/letsencrypt/live/www.example.com/privkey.pem \
-  /etc/letsencrypt/live/www.example.com/fullchain.pem \
-  | sudo tee /etc/letsencrypt/live/www.example.com/haproxy.pem >/dev/null
 }
 
 function logger_error {
@@ -62,10 +58,8 @@ function logger_info {
 ## main routine ##
 ##################
 
-le_cert_root="/etc/letsencrypt/live"
-
-if [ ! -d ${le_cert_root} ]; then
-  logger_error "${le_cert_root} does not exist!"
+if [ ! -d ${CERTROOT} ]; then
+  logger_error "${CERTROOT} does not exist!"
   exit 1
 fi
 
@@ -76,27 +70,34 @@ fi
 
 created_certs=()
 exitcode=0
-for domain in "$@"
+for domains in "$@"
 do
-  # TODO: allow for alternative name
+  # allow for alternative name. Use the first one listed as the main domain.
+  maindomain="";
+  domainstocreate="";
+  for domainname in $domains
+  do
+    if [ "${maindomain}" == "" ]; then maindomain="$domainname"; fi
+    domainstocreate="${domainstocreate} -d ${domainname}"
+  done
   
-  le_domain_cert_root="${le_cert_root}/${domain}"
+  logger_info "creating cert for ${maindomain}: ${domainstocreate}"
+  
+  le_domain_cert_root="${CERTROOT}/${maindomain}"
   if [ -d ${le_domain_cert_root} ]; then
-    logger_error "skipping ${domain}: ${le_domain_cert_root} already exists, renew instead!"
+    logger_error "skipping ${maindomain}: ${le_domain_cert_root} already exists, renew instead!"
     continue
   fi
+
+  issueCert "${domainstocreate}"
   
-  # TODO: allow for alternative name
-  $domains="-d ${domain}"
-  
-  issueCert "${domains}"
   if [ $? -ne 0 ]
   then
-    logger_error "${domain}: failed to create certificate! check /var/log/letsencrypt/letsencrypt.log!"
+    logger_error "${maindomain}: failed to create certificate! ${LOGFILE}!"
     exitcode=1
   else
-    created_certs+=("$domain")
-    logger_info "${domain}: created certificate"
+    created_certs+=("$maindomain")
+    logger_info "${maindomain}: created certificate"
   fi
 
 done
@@ -104,8 +105,8 @@ done
 
 # create haproxy.pem file(s)
 for domain in ${created_certs[@]}; do
-  cat ${le_cert_root}/${domain}/privkey.pem ${le_cert_root}/${domain}/fullchain.pem | tee ${le_cert_root}/${domain}/haproxy.pem >/dev/null
-  ln -s ${le_cert_root}/${domain}/haproxy.pem ${HAP_CERT_ROOT}/${domain}.pem
+  cat ${CERTROOT}/${domain}/privkey.pem ${CERTROOT}/${domain}/fullchain.pem | tee ${CERTROOT}/${domain}/haproxy.pem >/dev/null
+  ln -s ${CERTROOT}/${domain}/haproxy.pem ${HAP_CERT_ROOT}/${domain}.pem
   if [ $? -ne 0 ]; then
     logger_error "${domain}: failed to create haproxy.pem file!"
     continue
@@ -113,7 +114,7 @@ for domain in ${created_certs[@]}; do
 done
 
 # soft-restart haproxy
-if [ "${#renewed_certs[@]}" -gt 0 ]; then
+if [ "${#created_certs[@]}" -gt 0 ]; then
   $HAPROXY_RELOAD_CMD
   if [ $? -ne 0 ]; then
     logger_error "failed to reload haproxy!"
