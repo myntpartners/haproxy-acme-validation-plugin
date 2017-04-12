@@ -20,8 +20,10 @@ HAPROXY_RELOAD_CMD="service haproxy reload"
 
 WEBROOT="/var/lib/haproxy"
 
+CERTROOT="/etc/letsencrypt/live"
+
 # Enable to redirect output to logfile (for silent cron jobs)
-# LOGFILE="/var/log/certrenewal.log"
+LOGFILE="/var/log/certrenewal.log"
 
 ######################
 ## utility function ##
@@ -53,10 +55,8 @@ function logger_info {
 ## main routine ##
 ##################
 
-le_cert_root="/etc/letsencrypt/live"
-
-if [ ! -d ${le_cert_root} ]; then
-  logger_error "${le_cert_root} does not exist!"
+if [ ! -d ${CERTROOT} ]; then
+  logger_error "${CERTROOT} does not exist!"
   exit 1
 fi
 
@@ -90,7 +90,7 @@ done < <(find /etc/letsencrypt/live -name cert.pem -print0)
 
 # create haproxy.pem file(s)
 for domain in ${renewed_certs[@]}; do
-  cat ${le_cert_root}/${domain}/privkey.pem ${le_cert_root}/${domain}/fullchain.pem | tee ${le_cert_root}/${domain}/haproxy.pem >/dev/null
+  cat ${CERTROOT}/${domain}/privkey.pem ${CERTROOT}/${domain}/fullchain.pem | tee ${CERTROOT}/${domain}/haproxy.pem >/dev/null
   if [ $? -ne 0 ]; then
     logger_error "failed to create haproxy.pem file!"
     exit 1
