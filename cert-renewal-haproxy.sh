@@ -12,7 +12,7 @@
 ## configuration ##
 ###################
 
-EMAIL="your_le_account@email.com"
+EMAIL="your_email address"
 
 LE_CLIENT="/usr/local/bin/certbot-auto"
 
@@ -20,24 +20,22 @@ HAPROXY_RELOAD_CMD="service haproxy reload"
 
 WEBROOT="/var/lib/haproxy"
 
-CERTROOT="/etc/letsencrypt/live"
-
 # Enable to redirect output to logfile (for silent cron jobs)
-LOGFILE="/var/log/certrenewal.log"
+LOGFILE="/var/log/letsencrypt/certrenewal.log"
 
 ######################
 ## utility function ##
 ######################
 
 function issueCert {
-  $LE_CLIENT certonly --text --webroot --webroot-path ${WEBROOT} --renew-by-default --agree-tos --email ${EMAIL} $1 &>/dev/null
+  $LE_CLIENT certonly --text --webroot --webroot-path ${WEBROOT} --renew-by-default --agree-tos --email ${EMAIL} $1 &>${LOGFILE} #/dev/null
   return $?
 }
 
 function logger_error {
   if [ -n "${LOGFILE}" ]
   then
-    echo "[error] [$(date +'%d.%m.%y - %H:%M')] ${1}" >> ${LOGFILE}
+    echo "[error] ${1}\n" >> ${LOGFILE}
   fi
   >&2 echo "[error] ${1}"
 }
@@ -45,7 +43,7 @@ function logger_error {
 function logger_info {
   if [ -n "${LOGFILE}" ]
   then
-    echo "[info] [$(date +'%d.%m.%y - %H:%M')] ${1}" >> ${LOGFILE}
+    echo "[info] ${1}\n" >> ${LOGFILE}
   else
     echo "[info] ${1}"
   fi
@@ -55,8 +53,10 @@ function logger_info {
 ## main routine ##
 ##################
 
-if [ ! -d ${CERTROOT} ]; then
-  logger_error "${CERTROOT} does not exist!"
+le_cert_root="/etc/letsencrypt/live"
+
+if [ ! -d ${le_cert_root} ]; then
+  logger_error "${le_cert_root} does not exist!"
   exit 1
 fi
 
@@ -90,7 +90,7 @@ done < <(find /etc/letsencrypt/live -name cert.pem -print0)
 
 # create haproxy.pem file(s)
 for domain in ${renewed_certs[@]}; do
-  cat ${CERTROOT}/${domain}/privkey.pem ${CERTROOT}/${domain}/fullchain.pem | tee ${CERTROOT}/${domain}/haproxy.pem >/dev/null
+  cat ${le_cert_root}/${domain}/privkey.pem ${le_cert_root}/${domain}/fullchain.pem | sudo tee ${le_cert_root}/${domain}/haproxy.pem >/dev/null
   if [ $? -ne 0 ]; then
     logger_error "failed to create haproxy.pem file!"
     exit 1
